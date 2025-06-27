@@ -8,3 +8,4 @@ data["sdate"] = "19620101"  # YYYYMMDD
 data["edate"] = "20241231"  # YYYYMMDD
 url_values = urllib.parse.urlencode(data)
 url = f"https://www.nifs.go.kr/bweb/OpenAPI_json"
+full_url = f"{url}?{url_values}"
