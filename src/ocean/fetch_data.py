@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime
 
 def get_service_key():
     """
