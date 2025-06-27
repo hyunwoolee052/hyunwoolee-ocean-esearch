@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Content of fetch_data.py
+# -*- coding: utf-8 -*-
 
 import sys
 from pathlib import Path
