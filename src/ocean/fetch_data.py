@@ -65,13 +65,15 @@ def fetch_data(id, key, sdate, edate, output_dir="data"):
     full_url = f"{url}?{url_values}"
     with urllib.request.urlopen(full_url) as response:
         the_page = response.read().decode("cp949")
-        # Convert the response to JSON
         json_data = json.loads(the_page)
 
-        # Save the JSON data to a file
-        with open(f"sooList_{sdate[:6]}.json", "w", encoding="utf-8") as file:
+        # Ensure output directory exists
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        # Save the JSON data to a file in the output directory
+        output_path = Path(output_dir) / f"sooList_{sdate[:6]}.json"
+        with open(output_path, "w", encoding="utf-8") as file:
             json.dump(
-                json_data["body"]["item"],  # Save the 'item' part of the response
+                json_data["body"]["item"],
                 file,
                 ensure_ascii=False,
                 indent=4,
@@ -80,8 +82,8 @@ def fetch_data(id, key, sdate, edate, output_dir="data"):
 
 def main():
     key = get_service_key()
-    years = [1968:2025]
-    months = [1:13]
+    years = range(1968, 2025)
+    months = range(1, 13)
     for year in years:
         for month in months:
             sdate = date(year, month, 1).strftime("%Y%m%d")
@@ -91,5 +93,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-    
+
+
