@@ -9,6 +9,7 @@ import urllib.request
 from datetime import date, datetime
 import calendar
 
+
 def get_service_key():
     """
     Retrieve the service key from a file.
@@ -66,18 +67,21 @@ def fetch_data(id, key, sdate, edate, output_dir="data"):
     with urllib.request.urlopen(full_url) as response:
         the_page = response.read().decode("cp949")
         json_data = json.loads(the_page)
-
-        # Ensure output directory exists
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        # Save the JSON data to a file in the output directory
-        output_path = Path(output_dir) / f"sooList_{sdate[:6]}.json"
-        with open(output_path, "w", encoding="utf-8") as file:
-            json.dump(
-                json_data["body"]["item"],
-                file,
-                ensure_ascii=False,
-                indent=4,
-            )
+        if json_data["body"]["item"] is None:
+            print(f"No data found for {sdate} to {edate}.")
+            return
+        else:
+            # Ensure output directory exists
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            # Save the JSON data to a file in the output directory
+            output_path = Path(output_dir) / f"sooList_{sdate[:6]}.json"
+            with open(output_path, "w", encoding="utf-8") as file:
+                json.dump(
+                    json_data["body"]["item"],
+                    file,
+                    ensure_ascii=False,
+                    indent=4,
+                )
 
 
 def main():
@@ -87,11 +91,12 @@ def main():
     for year in years:
         for month in months:
             sdate = date(year, month, 1).strftime("%Y%m%d")
-            edate = date(year, month, calendar.monthrange(year, month)[1]).strftime("%Y%m%d")
+            edate = date(year, month, calendar.monthrange(year, month)[1]).strftime(
+                "%Y%m%d"
+            )
             print(f"Fetching data for {sdate} to {edate}")
             fetch_data("sooList", key, sdate, edate)
 
+
 if __name__ == "__main__":
     main()
-
-
