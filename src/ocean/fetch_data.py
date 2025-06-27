@@ -11,9 +11,14 @@ from datetime import datetime
 
 def get_service_key():
     """
-    Retrieves the service key from a file.
-    Returns:
-        str: The service key if available, otherwise an empty string.
+    Retrieve the service key from a file.
+
+    Returns
+    -------
+    str
+        The service key if available and not expired.
+    None
+        Exits the program if the service key is expired.
     """
     with open(Path.cwd() / "servicekey", "r", encoding="utf-8") as file:
         expiration_date = file.readline().strip()
@@ -27,15 +32,23 @@ def get_service_key():
 
 def fetch_data(id, key, sdate, edate):
     """
-    Fetches data from the NIFS OpenAPI.
+    Fetch data from the NIFS OpenAPI and save it to a file.
 
-    Args:
-        id (str): Identifier for the type of data to fetch.
-        key (str): Your API key for the NIFS OpenAPI.
-        sdate (str): Start date in 'YYYYMMDD' format.
-        edate (str): End date in 'YYYYMMDD' format.
-    Returns:
-        None: The function saves the fetched data to a file.
+    Parameters
+    ----------
+    id : str
+        Identifier for the type of data to fetch.
+    key : str
+        API key for the NIFS OpenAPI.
+    sdate : str
+        Start date in 'YYYYMMDD' format.
+    edate : str
+        End date in 'YYYYMMDD' format.
+
+    Returns
+    -------
+    None
+        The function saves the fetched data to a file.
     """
     data = {}
 
@@ -49,7 +62,7 @@ def fetch_data(id, key, sdate, edate):
     data["sdate"] = sdate  # YYYYMMDD
     data["edate"] = edate  # YYYYMMDD
     url_values = urllib.parse.urlencode(data)
-    url = f"https://www.nifs.go.kr/bweb/OpenAPI_json"
+    url = "https://www.nifs.go.kr/bweb/OpenAPI_json"
     full_url = f"{url}?{url_values}"
     with urllib.request.urlopen(full_url) as response:
         the_page = response.read().decode(
