@@ -1,9 +1,27 @@
+import sys
+from pathlib import Path
 import json
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
 
-def fetch_data(id, key, sdate, edate):
+def get_service_key():
+    """
+    Retrieves the service key from a file.
+    Returns:
+        str: The service key if available, otherwise an empty string.
+    """
+    with open(Path.cwd() / "servicekey", "r", encoding="utf-8") as file:
+        expiration_date = file.readline().strip()
+        service_key = file.readline().strip()
+    if datetime.strptime(expiration_date, "%Y-%m-%d") >= datetime.now():
+        return service_key
+    else:
+        print("Service key has expired. Please update the servicekey file.")
+        return sys.exit(1)
+
+
+def fetch_data(id, sdate, edate):
     """
     Fetches data from the NIFS OpenAPI.
     
@@ -13,7 +31,7 @@ def fetch_data(id, key, sdate, edate):
         sdate (str): Start date in 'YYYYMMDD' format.
         edate (str): End date in 'YYYYMMDD' format.
     Returns:
-        None: The function saves the fetched data to a file named 'sooList.json'.
+        None: The function saves the fetched data to a file.
     """
     data = {}
 
@@ -30,17 +48,25 @@ def fetch_data(id, key, sdate, edate):
     url = f"https://www.nifs.go.kr/bweb/OpenAPI_json"
     full_url = f"{url}?{url_values}"
     with urllib.request.urlopen(full_url) as response:
-        the_page = response.read().decode("cp949")
+        the_page = response.read().decode("cp949")  # Decode using cp949 for Korean characters
 
         # Convert the response to JSON
         json_data = json.loads(the_page)
 
         # Save the JSON data to a file
-        with open("sooList.json", "w", encoding="utf-8") as f:
+        with open(f"sooList_{sdate[0:6]}.json", "w", encoding="utf-8") as file:
             json.dump(
-                json_data["body"]["item"],
-                f,
+                json_data["body"]["item"],  # Save the 'item' part of the response
+                file,
                 ensure_ascii=False,
-                indent=4,
-                sort_keys=True
+                indent=4
             )
+
+if __name__ == "__main__":
+    key = get_service_key()
+    if key:
+        id = "sooList"  # Default to sooList
+        sdate = "20231201"  # Start date in 'YYYYMMDD' format
+        edate = "20231231"  # End date in 'YYYYMMDD' format
+        # Fetch data using the provided id, sdate, and edate
+        fetch_data(id, sdate, edate)
