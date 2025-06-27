@@ -64,12 +64,3 @@ def fetch_data(id, sdate, edate):
                 ensure_ascii=False,
                 indent=4
             )
-
-if __name__ == "__main__":
-    key = get_service_key()
-    if key:
-        id = "sooList"  # Default to sooList
-        sdate = "20231201"  # Start date in 'YYYYMMDD' format
-        edate = "20231231"  # End date in 'YYYYMMDD' format
-        # Fetch data using the provided id, sdate, and edate
-        fetch_data(id, sdate, edate)
