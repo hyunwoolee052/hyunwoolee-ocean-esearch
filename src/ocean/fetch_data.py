@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# Content of fetch_data.py
+
 import sys
 from pathlib import Path
 import json
