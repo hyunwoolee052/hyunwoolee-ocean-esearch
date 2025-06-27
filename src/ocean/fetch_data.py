@@ -67,7 +67,7 @@ def fetch_data(id, key, sdate, edate, output_dir="data"):
     with urllib.request.urlopen(full_url) as response:
         the_page = response.read().decode("cp949")
         json_data = json.loads(the_page)
-        if json_data["body"]["item"] is None:
+        if not json_data["body"]["item"]:
             print(f"No data found for {sdate} to {edate}.")
             return
         else:
