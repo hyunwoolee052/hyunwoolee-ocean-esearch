@@ -8,6 +8,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
+
 def get_service_key():
     """
     Retrieves the service key from a file.
@@ -24,10 +25,10 @@ def get_service_key():
         return sys.exit(1)
 
 
-def fetch_data(id, sdate, edate):
+def fetch_data(id, key, sdate, edate):
     """
     Fetches data from the NIFS OpenAPI.
-    
+
     Args:
         id (str): Identifier for the type of data to fetch.
         key (str): Your API key for the NIFS OpenAPI.
@@ -43,7 +44,7 @@ def fetch_data(id, sdate, edate):
 
     # NIFS OpenAPI key
     # Note: If the key is expired, update it
-    #TODO: Create serviceKey.txt file with the key and expiration date
+    # TODO: Create serviceKey.txt file with the key and expiration date
     data["key"] = key  # OpenAPI key
     data["sdate"] = sdate  # YYYYMMDD
     data["edate"] = edate  # YYYYMMDD
@@ -51,7 +52,9 @@ def fetch_data(id, sdate, edate):
     url = f"https://www.nifs.go.kr/bweb/OpenAPI_json"
     full_url = f"{url}?{url_values}"
     with urllib.request.urlopen(full_url) as response:
-        the_page = response.read().decode("cp949")  # Decode using cp949 for Korean characters
+        the_page = response.read().decode(
+            "cp949"
+        )  # Decode using cp949 for Korean characters
 
         # Convert the response to JSON
         json_data = json.loads(the_page)
@@ -62,5 +65,5 @@ def fetch_data(id, sdate, edate):
                 json_data["body"]["item"],  # Save the 'item' part of the response
                 file,
                 ensure_ascii=False,
-                indent=4
+                indent=4,
             )
