@@ -6,8 +6,8 @@ from pathlib import Path
 import json
 import urllib.parse
 import urllib.request
-from datetime import datetime
-
+from datetime import date, datetime
+import calendar
 
 def get_service_key():
     """
@@ -31,7 +31,7 @@ def get_service_key():
         return sys.exit(1)
 
 
-def fetch_data(id, key, sdate, edate):
+def fetch_data(id, key, sdate, edate, output_dir="data"):
     """
     Fetch data from the NIFS OpenAPI and save it to a file.
 
@@ -45,6 +45,8 @@ def fetch_data(id, key, sdate, edate):
         Start date in 'YYYYMMDD' format.
     edate : str
         End date in 'YYYYMMDD' format.
+    output_dir : str, optional
+        Directory where the output file will be saved (default is "data").
 
     Returns
     -------
@@ -74,3 +76,20 @@ def fetch_data(id, key, sdate, edate):
                 ensure_ascii=False,
                 indent=4,
             )
+
+
+def main():
+    key = get_service_key()
+    years = [1968:2025]
+    months = [1:13]
+    for year in years:
+        for month in months:
+            sdate = date(year, month, 1).strftime("%Y%m%d")
+            edate = date(year, month, calendar.monthrange(year, month)[1]).strftime("%Y%m%d")
+            print(f"Fetching data for {sdate} to {edate}")
+            fetch_data("sooList", key, sdate, edate)
+
+if __name__ == "__main__":
+    main()
+    
+    
