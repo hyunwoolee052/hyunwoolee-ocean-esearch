@@ -91,9 +91,8 @@ def main():
     for year in years:
         for month in months:
             sdate = date(year, month, 1).strftime("%Y%m%d")
-            edate = date(year, month, calendar.monthrange(year, month)[1]).strftime(
-                "%Y%m%d"
-            )
+            eday = calendar.monthrange(year, month)[1]
+            edate = date(year, month, eday).strftime("%Y%m%d")
             print(f"Fetching data for {sdate} to {edate}")
             fetch_data("sooList", key, sdate, edate)
 
