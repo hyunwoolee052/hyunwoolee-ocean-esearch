@@ -2,9 +2,6 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import netCDF4 as nc
-import time
-import tracemalloc
-from scipy import sparse
 
 DATA_DIR = Path.cwd() / "data/"
 
@@ -44,115 +41,101 @@ def datetime_to_julian(dt_array):
     return dt_index.to_julian_date().values
 
 
-# Use numpy arrays for memory efficiency
-sdate = "1968-01-01"
-edate = "2025-12-31"
-temperature = concat_data_array("wtr_tmp", sdate, edate)
-depth = concat_data_array("wtr_dep", sdate, edate)
-obs_time = concat_data_array("obs_dtm", sdate, edate)
-longitude = concat_data_array("lon", sdate, edate)
-latitude = concat_data_array("lat", sdate, edate)
-salinity = concat_data_array("sal", sdate, edate)
-dissolved_oxygen = concat_data_array("dox", sdate, edate)
+def build_dataframe(sdate, edate):
+    """Build the main DataFrame from all arrays."""
+    temperature = concat_data_array("wtr_tmp", sdate, edate)
+    depth = concat_data_array("wtr_dep", sdate, edate)
+    obs_time = concat_data_array("obs_dtm", sdate, edate)
+    longitude = concat_data_array("lon", sdate, edate)
+    latitude = concat_data_array("lat", sdate, edate)
+    salinity = concat_data_array("sal", sdate, edate)
+    dissolved_oxygen = concat_data_array("dox", sdate, edate)
+    julian_time = datetime_to_julian(obs_time)
 
-julian_time = datetime_to_julian(obs_time)
-
-# Combine all arrays into a DataFrame for easy grouping
-df = pd.DataFrame(
-    {
-        "julian_time": julian_time,
-        "longitude": longitude,
-        "latitude": latitude,
-        "depth": depth,
-        "temperature": temperature,
-        "salinity": salinity,
-        "dissolved_oxygen": dissolved_oxygen,
-    }
-)
-
-# Group by julian_time, longitude, latitude, and depth, then aggregate (mean, ignoring NaN)
-grouped = (
-    df.groupby(["julian_time", "longitude", "latitude", "depth"], dropna=True).reset_index()
-)
+    df = pd.DataFrame(
+        {
+            "julian_time": julian_time,
+            "longitude": longitude,
+            "latitude": latitude,
+            "depth": depth,
+            "temperature": temperature,
+            "salinity": salinity,
+            "dissolved_oxygen": dissolved_oxygen,
+        }
+    )
+    return df
 
 
-def save_sparse_to_netcdf(grouped_df, filename="grouped_ocean_data_sparse.nc"):
+def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.nc"):
     """
-    Save grouped data as sparse arrays to NetCDF4 file.
-    Only non-NaN values are stored with their indices.
+    Save original (non-aggregated) data as sparse arrays to NetCDF4 file.
+    Dimensions: spatiotemporal (t, z, y, x) with coordinates.
+    Variables: wtr_tmp (temperature), sal (salinity), dox (dissolved oxygen).
     """
     # Get unique sorted values for each dimension
-    times = np.sort(grouped_df["julian_time"].unique())
-    lons = np.sort(grouped_df["longitude"].unique())
-    lats = np.sort(grouped_df["latitude"].unique())
-    depths = np.sort(grouped_df["depth"].unique())
+    t_vals = np.sort(df["julian_time"].unique())
+    x_vals = np.sort(df["longitude"].unique())
+    y_vals = np.sort(df["latitude"].unique())
+    z_vals = np.sort(df["depth"].unique())
 
     # Create indexers for fast lookup
-    time_index = {v: i for i, v in enumerate(times)}
-    lon_index = {v: i for i, v in enumerate(lons)}
-    lat_index = {v: i for i, v in enumerate(lats)}
-    depth_index = {v: i for i, v in enumerate(depths)}
+    t_index = {v: i for i, v in enumerate(t_vals)}
+    x_index = {v: i for i, v in enumerate(x_vals)}
+    y_index = {v: i for i, v in enumerate(y_vals)}
+    z_index = {v: i for i, v in enumerate(z_vals)}
 
     # Prepare lists for sparse representation
-    t_idx, d_idx, la_idx, lo_idx = [], [], [], []
-    temp_data, sal_data, dox_data = [], [], []
+    t_idx, x_idx, y_idx, z_idx = [], [], [], []
+    wtr_tmp_data, sal_data, dox_data = [], [], []
 
-    for _, row in grouped_df.iterrows():
-        t = time_index[row["julian_time"]]
-        d = depth_index[row["depth"]]
-        la = lat_index[row["latitude"]]
-        lo = lon_index[row["longitude"]]
-        # Only store non-NaN values
-        if not np.isnan(row["temperature"]):
-            t_idx.append(t)
-            d_idx.append(d)
-            la_idx.append(la)
-            lo_idx.append(lo)
-            temp_data.append(row["temperature"])
-        if not np.isnan(row["salinity"]):
-            # Use same indices for salinity
-            pass if not np.isnan(row["temperature"]) else (t_idx.append(t), d_idx.append(d), la_idx.append(la), lo_idx.append(lo))
+    for _, row in df.iterrows():
+        # Only store rows where at least one variable is not NaN
+        if not (
+            np.isnan(row["temperature"])
+            and np.isnan(row["salinity"])
+            and np.isnan(row["dissolved_oxygen"])
+        ):
+            t_idx.append(t_index[row["julian_time"]])
+            x_idx.append(x_index[row["longitude"]])
+            y_idx.append(y_index[row["latitude"]])
+            z_idx.append(z_index[row["depth"]])
+            wtr_tmp_data.append(row["temperature"])
             sal_data.append(row["salinity"])
-        if not np.isnan(row["dissolved_oxygen"]):
-            # Use same indices for dox
-            pass if not np.isnan(row["temperature"]) or not np.isnan(row["salinity"]) else (t_idx.append(t), d_idx.append(d), la_idx.append(la), lo_idx.append(lo))
             dox_data.append(row["dissolved_oxygen"])
 
-    # Write to NetCDF (store as 1D arrays with indices)
+    n_obs = len(t_idx)
+
     with nc.Dataset(filename, "w", format="NETCDF4") as ds:
-        ds.createDimension("n_obs", len(t_idx))
-        ds.createDimension("time", len(times))
-        ds.createDimension("depth", len(depths))
-        ds.createDimension("latitude", len(lats))
-        ds.createDimension("longitude", len(lons))
+        ds.createDimension("n_obs", n_obs)
+        ds.createDimension("t", len(t_vals))
+        ds.createDimension("x", len(x_vals))
+        ds.createDimension("y", len(y_vals))
+        ds.createDimension("z", len(z_vals))
 
-        ds.createVariable("time_values", "f8", ("time",))[:] = times
-        ds.createVariable("depth_values", "f4", ("depth",))[:] = depths
-        ds.createVariable("latitude_values", "f4", ("latitude",))[:] = lats
-        ds.createVariable("longitude_values", "f4", ("longitude",))[:] = lons
+        # Coordinate variables
+        ds.createVariable("t", "f8", ("t",))[:] = t_vals
+        ds.createVariable("x", "f4", ("x",))[:] = x_vals
+        ds.createVariable("y", "f4", ("y",))[:] = y_vals
+        ds.createVariable("z", "f4", ("z",))[:] = z_vals
 
-        ds.createVariable("time_idx", "i4", ("n_obs",))[:] = t_idx
-        ds.createVariable("depth_idx", "i4", ("n_obs",))[:] = d_idx
-        ds.createVariable("latitude_idx", "i4", ("n_obs",))[:] = la_idx
-        ds.createVariable("longitude_idx", "i4", ("n_obs",))[:] = lo_idx
+        # Index variables
+        ds.createVariable("t_idx", "i4", ("n_obs",))[:] = t_idx
+        ds.createVariable("x_idx", "i4", ("n_obs",))[:] = x_idx
+        ds.createVariable("y_idx", "i4", ("n_obs",))[:] = y_idx
+        ds.createVariable("z_idx", "i4", ("n_obs",))[:] = z_idx
 
-        ds.createVariable("temperature", "f4", ("n_obs",), fill_value=np.nan)[:] = temp_data
-        ds.createVariable("salinity", "f4", ("n_obs",), fill_value=np.nan)[:] = sal_data
-        ds.createVariable("dissolved_oxygen", "f4", ("n_obs",), fill_value=np.nan)[:] = dox_data
+        # Sparse data variables
+        ds.createVariable("wtr_tmp", "f4", ("n_obs",), fill_value=np.nan)[:] = wtr_tmp_data
+        ds.createVariable("sal", "f4", ("n_obs",), fill_value=np.nan)[:] = sal_data
+        ds.createVariable("dox", "f4", ("n_obs",), fill_value=np.nan)[:] = dox_data
 
-        ds.title = "Sparse Grouped Ocean Data"
-        ds.history = "Created by script (sparse representation)"
+        ds.title = "Sparse Spatiotemporal Ocean Data"
+        ds.history = "Created by script (sparse spatiotemporal representation)"
 
-
-# Start memory and time tracking
-start_time = time.time()
-tracemalloc.start()
-
-# Print memory usage and elapsed time
-current, peak = tracemalloc.get_traced_memory()
-print(f"Current memory usage: {current / 1024**2:.2f} MB; Peak: {peak / 1024**2:.2f} MB")
-print(f"Elapsed time: {time.time() - start_time:.2f} seconds")
-tracemalloc.stop()
 
 # Example usage:
-save_sparse_to_netcdf(grouped, filename="grouped_ocean_data_sparse.nc")
+if __name__ == "__main__":
+    sdate = "1968-01-01"
+    edate = "2025-12-31"
+    df = build_dataframe(sdate, edate)
+    save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.nc")
