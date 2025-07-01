@@ -72,14 +72,15 @@ df = pd.DataFrame(
 
 # Group by julian_time, longitude, latitude, and depth, then aggregate (mean, ignoring NaN)
 grouped = (
-    df.groupby(["julian_time", "longitude", "latitude", "depth"], dropna=True)
-    .agg({"temperature": "mean", "salinity": "mean", "dissolved_oxygen": "mean"})
-    .reset_index()
+    df.groupby(["julian_time", "longitude", "latitude", "depth"], dropna=True).reset_index()
 )
 
 
-# Save grouped data as a NetCDF file indexed by julian_time, longitude, latitude, and depth
-def save_grouped_to_netcdf(grouped_df, filename="grouped_ocean_data.nc"):
+def save_sparse_to_netcdf(grouped_df, filename="grouped_ocean_data_sparse.nc"):
+    """
+    Save grouped data as sparse arrays to NetCDF4 file.
+    Only non-NaN values are stored with their indices.
+    """
     # Get unique sorted values for each dimension
     times = np.sort(grouped_df["julian_time"].unique())
     lons = np.sort(grouped_df["longitude"].unique())
@@ -92,137 +93,55 @@ def save_grouped_to_netcdf(grouped_df, filename="grouped_ocean_data.nc"):
     lat_index = {v: i for i, v in enumerate(lats)}
     depth_index = {v: i for i, v in enumerate(depths)}
 
-    # Create empty arrays filled with NaN
-    shape = (len(times), len(depths), len(lats), len(lons))
-    temp_arr = np.full(shape, np.nan, dtype=np.float32)
-    sal_arr = np.full(shape, np.nan, dtype=np.float32)
-    dox_arr = np.full(shape, np.nan, dtype=np.float32)
+    # Prepare lists for sparse representation
+    t_idx, d_idx, la_idx, lo_idx = [], [], [], []
+    temp_data, sal_data, dox_data = [], [], []
 
-    # Fill arrays
     for _, row in grouped_df.iterrows():
         t = time_index[row["julian_time"]]
         d = depth_index[row["depth"]]
         la = lat_index[row["latitude"]]
         lo = lon_index[row["longitude"]]
-        temp_arr[t, d, la, lo] = row["temperature"]
-        sal_arr[t, d, la, lo] = row["salinity"]
-        dox_arr[t, d, la, lo] = row["dissolved_oxygen"]
+        # Only store non-NaN values
+        if not np.isnan(row["temperature"]):
+            t_idx.append(t)
+            d_idx.append(d)
+            la_idx.append(la)
+            lo_idx.append(lo)
+            temp_data.append(row["temperature"])
+        if not np.isnan(row["salinity"]):
+            # Use same indices for salinity
+            pass if not np.isnan(row["temperature"]) else (t_idx.append(t), d_idx.append(d), la_idx.append(la), lo_idx.append(lo))
+            sal_data.append(row["salinity"])
+        if not np.isnan(row["dissolved_oxygen"]):
+            # Use same indices for dox
+            pass if not np.isnan(row["temperature"]) or not np.isnan(row["salinity"]) else (t_idx.append(t), d_idx.append(d), la_idx.append(la), lo_idx.append(lo))
+            dox_data.append(row["dissolved_oxygen"])
 
-    # Write to NetCDF
+    # Write to NetCDF (store as 1D arrays with indices)
     with nc.Dataset(filename, "w", format="NETCDF4") as ds:
+        ds.createDimension("n_obs", len(t_idx))
         ds.createDimension("time", len(times))
         ds.createDimension("depth", len(depths))
         ds.createDimension("latitude", len(lats))
         ds.createDimension("longitude", len(lons))
 
-        time_var = ds.createVariable("julian_time", "f8", ("time",))
-        depth_var = ds.createVariable("depth", "f4", ("depth",))
-        lat_var = ds.createVariable("latitude", "f4", ("latitude",))
-        lon_var = ds.createVariable("longitude", "f4", ("longitude",))
+        ds.createVariable("time_values", "f8", ("time",))[:] = times
+        ds.createVariable("depth_values", "f4", ("depth",))[:] = depths
+        ds.createVariable("latitude_values", "f4", ("latitude",))[:] = lats
+        ds.createVariable("longitude_values", "f4", ("longitude",))[:] = lons
 
-        temp_var = ds.createVariable(
-            "temperature",
-            "f4",
-            ("time", "depth", "latitude", "longitude"),
-            fill_value=np.nan,
-        )
-        sal_var = ds.createVariable(
-            "salinity",
-            "f4",
-            ("time", "depth", "latitude", "longitude"),
-            fill_value=np.nan,
-        )
-        dox_var = ds.createVariable(
-            "dissolved_oxygen",
-            "f4",
-            ("time", "depth", "latitude", "longitude"),
-            fill_value=np.nan,
-        )
+        ds.createVariable("time_idx", "i4", ("n_obs",))[:] = t_idx
+        ds.createVariable("depth_idx", "i4", ("n_obs",))[:] = d_idx
+        ds.createVariable("latitude_idx", "i4", ("n_obs",))[:] = la_idx
+        ds.createVariable("longitude_idx", "i4", ("n_obs",))[:] = lo_idx
 
-        time_var[:] = times
-        depth_var[:] = depths
-        lat_var[:] = lats
-        lon_var[:] = lons
+        ds.createVariable("temperature", "f4", ("n_obs",), fill_value=np.nan)[:] = temp_data
+        ds.createVariable("salinity", "f4", ("n_obs",), fill_value=np.nan)[:] = sal_data
+        ds.createVariable("dissolved_oxygen", "f4", ("n_obs",), fill_value=np.nan)[:] = dox_data
 
-        temp_var[:, :, :, :] = temp_arr
-        sal_var[:, :, :, :] = sal_arr
-        dox_var[:, :, :, :] = dox_arr
-
-        ds.title = "Grouped Ocean Data"
-        ds.history = "Created by script"
-
-
-def save_grouped_to_sparse_npz(grouped_df, filename="grouped_ocean_data_sparse.npz"):
-    """
-    Save grouped data as sparse arrays (CSR) for temperature, salinity, and dissolved oxygen.
-    Index order: (julian_time, depth, latitude, longitude)
-    """
-    # Get unique sorted values for each dimension
-    times = np.sort(grouped_df["julian_time"].unique())
-    lons = np.sort(grouped_df["longitude"].unique())
-    lats = np.sort(grouped_df["latitude"].unique())
-    depths = np.sort(grouped_df["depth"].unique())
-
-    # Create indexers for fast lookup
-    time_index = {v: i for i, v in enumerate(times)}
-    lon_index = {v: i for i, v in enumerate(lons)}
-    lat_index = {v: i for i, v in enumerate(lats)}
-    depth_index = {v: i for i, v in enumerate(depths)}
-
-    # Prepare lists for COO sparse matrix construction
-    coords = []
-    temp_data = []
-    sal_data = []
-    dox_data = []
-
-    for _, row in grouped_df.iterrows():
-        t = time_index[row["julian_time"]]
-        d = depth_index[row["depth"]]
-        la = lat_index[row["latitude"]]
-        lo = lon_index[row["longitude"]]
-        coords.append((t, d, la, lo))
-        temp_data.append(row["temperature"])
-        sal_data.append(row["salinity"])
-        dox_data.append(row["dissolved_oxygen"])
-
-    coords = np.array(coords)
-    shape = (len(times), len(depths), len(lats), len(lons))
-
-    # Create sparse COO matrices
-    temp_sparse = sparse.coo_matrix(
-        (temp_data, (coords[:, 0], coords[:, 1] * len(lats) * len(lons) + coords[:, 2] * len(lons) + coords[:, 3])),
-        shape=(shape[0], shape[1] * shape[2] * shape[3]),
-    )
-    sal_sparse = sparse.coo_matrix(
-        (sal_data, (coords[:, 0], coords[:, 1] * len(lats) * len(lons) + coords[:, 2] * len(lons) + coords[:, 3])),
-        shape=(shape[0], shape[1] * shape[2] * shape[3]),
-    )
-    dox_sparse = sparse.coo_matrix(
-        (dox_data, (coords[:, 0], coords[:, 1] * len(lats) * len(lons) + coords[:, 2] * len(lons) + coords[:, 3])),
-        shape=(shape[0], shape[1] * shape[2] * shape[3]),
-    )
-
-    # Save as .npz file
-    np.savez_compressed(
-        filename,
-        temp_data=temp_sparse.data,
-        temp_row=temp_sparse.row,
-        temp_col=temp_sparse.col,
-        temp_shape=temp_sparse.shape,
-        sal_data=sal_sparse.data,
-        sal_row=sal_sparse.row,
-        sal_col=sal_sparse.col,
-        sal_shape=sal_sparse.shape,
-        dox_data=dox_sparse.data,
-        dox_row=dox_sparse.row,
-        dox_col=dox_sparse.col,
-        dox_shape=dox_sparse.shape,
-        times=times,
-        depths=depths,
-        lats=lats,
-        lons=lons,
-    )
-    print(f"Sparse arrays saved to {filename}")
+        ds.title = "Sparse Grouped Ocean Data"
+        ds.history = "Created by script (sparse representation)"
 
 
 # Start memory and time tracking
@@ -233,12 +152,7 @@ tracemalloc.start()
 current, peak = tracemalloc.get_traced_memory()
 print(f"Current memory usage: {current / 1024**2:.2f} MB; Peak: {peak / 1024**2:.2f} MB")
 print(f"Elapsed time: {time.time() - start_time:.2f} seconds")
-
-# Save as sparse array
-save_grouped_to_sparse_npz(grouped)
-
-# Print memory usage and elapsed time
-current, peak = tracemalloc.get_traced_memory()
-print(f"Current memory usage: {current / 1024**2:.2f} MB; Peak: {peak / 1024**2:.2f} MB")
-print(f"Elapsed time: {time.time() - start_time:.2f} seconds")
 tracemalloc.stop()
+
+# Example usage:
+save_sparse_to_netcdf(grouped, filename="grouped_ocean_data_sparse.nc")
