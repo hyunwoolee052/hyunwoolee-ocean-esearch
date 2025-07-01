@@ -55,12 +55,6 @@ def build_dataframe(sdate: str, edate: str) -> pd.DataFrame:
         }
     )
 
-    # --- Standard Depth Matching ---
-    df = df[~np.isnan(df["depth"])]
-    df["std_depth"] = STANDARD_DEPTHS[
-        np.abs(df["depth"].values[:, None] - STANDARD_DEPTHS).argmin(axis=1)
-    ]
-
     # --- 3-sigma Quality Control for salinity and dissolved oxygen ---
     for var in ["salinity", "dissolved_oxygen"]:
         vals = df[var]
@@ -78,7 +72,7 @@ def save_sparse_to_netcdf_spatiotemporal(
     t_vals = np.sort(pd.to_datetime(df["datetime"].unique()))
     x_vals = np.sort(df["longitude"].unique())
     y_vals = np.sort(df["latitude"].unique())
-    z_vals = np.sort(df["std_depth"].unique())
+    z_vals = np.sort(df["depth"].unique())
 
     t_index = {v: i for i, v in enumerate(t_vals)}
     x_index = {v: i for i, v in enumerate(x_vals)}
@@ -104,7 +98,7 @@ def save_sparse_to_netcdf_spatiotemporal(
             t_idx.append(t_index[pd.to_datetime(row["datetime"])])
             x_idx.append(x_index[row["longitude"]])
             y_idx.append(y_index[row["latitude"]])
-            z_idx.append(z_index[row["std_depth"]])
+            z_idx.append(z_index[row["depth"]])
             wtr_tmp_data.append(np.float32(row["temperature"]))
             sal_data.append(np.float32(row["salinity"]))
             dox_data.append(np.float32(row["dissolved_oxygen"]))
@@ -142,86 +136,12 @@ def save_sparse_to_netcdf_spatiotemporal(
             dox_data, dtype=np.float32
         )
 
-        ds.title = "Sparse Spatiotemporal Ocean Data"
+        ds.title = "KODC Serial Oceanographic Observation Data"
         ds.history = "Created by script (sparse spatiotemporal representation)"
 
 
-def save_dense_to_netcdf_4d(
-    df: pd.DataFrame, filename: str = "sooList_dense_4d.nc"
-) -> None:
-    """
-    Save data as dense 4D (time, depth, lat, lon) NetCDF4 file for use with Iris.
-    """
-    # Prepare unique sorted axes
-    t_vals = np.sort(pd.to_datetime(df["datetime"].unique()))
-    z_vals = np.sort(df["std_depth"].unique())
-    y_vals = np.sort(df["latitude"].unique())
-    x_vals = np.sort(df["longitude"].unique())
-
-    # Build index maps
-    t_index = {v: i for i, v in enumerate(t_vals)}
-    z_index = {v: i for i, v in enumerate(z_vals)}
-    y_index = {v: i for i, v in enumerate(y_vals)}
-    x_index = {v: i for i, v in enumerate(x_vals)}
-
-    # Initialize arrays with NaN
-    shape = (len(t_vals), len(z_vals), len(y_vals), len(x_vals))
-    temp_arr = np.full(shape, np.nan, dtype=np.float32)
-    sal_arr = np.full(shape, np.nan, dtype=np.float32)
-    dox_arr = np.full(shape, np.nan, dtype=np.float32)
-
-    # Fill arrays
-    for _, row in df.iterrows():
-        if (
-            pd.isna(row["datetime"])
-            or np.isnan(row["longitude"])
-            or np.isnan(row["latitude"])
-            or np.isnan(row["std_depth"])
-        ):
-            continue
-        t = t_index[pd.to_datetime(row["datetime"])]
-        z = z_index[row["std_depth"]]
-        y = y_index[row["latitude"]]
-        x = x_index[row["longitude"]]
-        if not np.isnan(row["temperature"]):
-            temp_arr[t, z, y, x] = row["temperature"]
-        if not np.isnan(row["salinity"]):
-            sal_arr[t, z, y, x] = row["salinity"]
-        if not np.isnan(row["dissolved_oxygen"]):
-            dox_arr[t, z, y, x] = row["dissolved_oxygen"]
-
-    # Write to NetCDF4
-    with nc.Dataset(filename, "w", format="NETCDF4") as ds:
-        ds.createDimension("time", len(t_vals))
-        ds.createDimension("depth", len(z_vals))
-        ds.createDimension("lat", len(y_vals))
-        ds.createDimension("lon", len(x_vals))
-
-        time_var = ds.createVariable("time", "f8", ("time",))
-        time_var.units = "seconds since 1970-01-01 00:00:00"
-        time_var.calendar = "standard"
-        time_var[:] = np.array([pd.Timestamp(t).timestamp() for t in t_vals])
-
-        ds.createVariable("depth", "f4", ("depth",))[:] = z_vals
-        ds.createVariable("lat", "f4", ("lat",))[:] = y_vals
-        ds.createVariable("lon", "f4", ("lon",))[:] = x_vals
-
-        ds.createVariable("temperature", "f4", ("time", "depth", "lat", "lon"), fill_value=np.nan)[:] = temp_arr
-        ds.createVariable("salinity", "f4", ("time", "depth", "lat", "lon"), fill_value=np.nan)[:] = sal_arr
-        ds.createVariable("dissolved_oxygen", "f4", ("time", "depth", "lat", "lon"), fill_value=np.nan)[:] = dox_arr
-
-        ds.title = "Dense Spatiotemporal Ocean Data"
-        ds.history = "Created by script (dense 4D representation)"
-
 if __name__ == "__main__":
-    import argparse
     sdate = "1968-01-01"
-    edate = "2025-12-31"
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dense", action="store_true", help="Save as dense 4D NetCDF (Iris compatible)")
-    args = parser.parse_args()
+    edate = "2024-12-31"
     df = build_dataframe(sdate, edate)
-    if args.dense:
-        save_dense_to_netcdf_4d(df, filename="sooList_dense_4d.nc")
-    else:
-        save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.nc")
+    save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.nc")
