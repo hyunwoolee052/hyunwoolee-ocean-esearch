@@ -4,6 +4,7 @@ from pathlib import Path
 import netCDF4 as nc
 import time
 import tracemalloc
+from scipy import sparse
 
 DATA_DIR = Path.cwd() / "data/"
 
@@ -151,14 +152,93 @@ def save_grouped_to_netcdf(grouped_df, filename="grouped_ocean_data.nc"):
         ds.history = "Created by script"
 
 
+def save_grouped_to_sparse_npz(grouped_df, filename="grouped_ocean_data_sparse.npz"):
+    """
+    Save grouped data as sparse arrays (CSR) for temperature, salinity, and dissolved oxygen.
+    Index order: (julian_time, depth, latitude, longitude)
+    """
+    # Get unique sorted values for each dimension
+    times = np.sort(grouped_df["julian_time"].unique())
+    lons = np.sort(grouped_df["longitude"].unique())
+    lats = np.sort(grouped_df["latitude"].unique())
+    depths = np.sort(grouped_df["depth"].unique())
+
+    # Create indexers for fast lookup
+    time_index = {v: i for i, v in enumerate(times)}
+    lon_index = {v: i for i, v in enumerate(lons)}
+    lat_index = {v: i for i, v in enumerate(lats)}
+    depth_index = {v: i for i, v in enumerate(depths)}
+
+    # Prepare lists for COO sparse matrix construction
+    coords = []
+    temp_data = []
+    sal_data = []
+    dox_data = []
+
+    for _, row in grouped_df.iterrows():
+        t = time_index[row["julian_time"]]
+        d = depth_index[row["depth"]]
+        la = lat_index[row["latitude"]]
+        lo = lon_index[row["longitude"]]
+        coords.append((t, d, la, lo))
+        temp_data.append(row["temperature"])
+        sal_data.append(row["salinity"])
+        dox_data.append(row["dissolved_oxygen"])
+
+    coords = np.array(coords)
+    shape = (len(times), len(depths), len(lats), len(lons))
+
+    # Create sparse COO matrices
+    temp_sparse = sparse.coo_matrix(
+        (temp_data, (coords[:, 0], coords[:, 1] * len(lats) * len(lons) + coords[:, 2] * len(lons) + coords[:, 3])),
+        shape=(shape[0], shape[1] * shape[2] * shape[3]),
+    )
+    sal_sparse = sparse.coo_matrix(
+        (sal_data, (coords[:, 0], coords[:, 1] * len(lats) * len(lons) + coords[:, 2] * len(lons) + coords[:, 3])),
+        shape=(shape[0], shape[1] * shape[2] * shape[3]),
+    )
+    dox_sparse = sparse.coo_matrix(
+        (dox_data, (coords[:, 0], coords[:, 1] * len(lats) * len(lons) + coords[:, 2] * len(lons) + coords[:, 3])),
+        shape=(shape[0], shape[1] * shape[2] * shape[3]),
+    )
+
+    # Save as .npz file
+    np.savez_compressed(
+        filename,
+        temp_data=temp_sparse.data,
+        temp_row=temp_sparse.row,
+        temp_col=temp_sparse.col,
+        temp_shape=temp_sparse.shape,
+        sal_data=sal_sparse.data,
+        sal_row=sal_sparse.row,
+        sal_col=sal_sparse.col,
+        sal_shape=sal_sparse.shape,
+        dox_data=dox_sparse.data,
+        dox_row=dox_sparse.row,
+        dox_col=dox_sparse.col,
+        dox_shape=dox_sparse.shape,
+        times=times,
+        depths=depths,
+        lats=lats,
+        lons=lons,
+    )
+    print(f"Sparse arrays saved to {filename}")
+
+
 # Start memory and time tracking
 start_time = time.time()
 tracemalloc.start()
-
-# Call the function to save as NetCDF
-save_grouped_to_netcdf(grouped)
 
 # Print memory usage and elapsed time
 current, peak = tracemalloc.get_traced_memory()
 print(f"Current memory usage: {current / 1024**2:.2f} MB; Peak: {peak / 1024**2:.2f} MB")
 print(f"Elapsed time: {time.time() - start_time:.2f} seconds")
+
+# Save as sparse array
+save_grouped_to_sparse_npz(grouped)
+
+# Print memory usage and elapsed time
+current, peak = tracemalloc.get_traced_memory()
+print(f"Current memory usage: {current / 1024**2:.2f} MB; Peak: {peak / 1024**2:.2f} MB")
+print(f"Elapsed time: {time.time() - start_time:.2f} seconds")
+tracemalloc.stop()
