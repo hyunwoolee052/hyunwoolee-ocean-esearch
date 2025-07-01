@@ -4,10 +4,44 @@ from pathlib import Path
 import netCDF4 as nc
 
 DATA_DIR = Path.cwd() / "data/"
+STANDARD_DEPTHS = np.array(
+    [
+        0,
+        10,
+        20,
+        30,
+        50,
+        75,
+        100,
+        125,
+        150,
+        200,
+        250,
+        300,
+        400,
+        500,
+    ]
+)
 
 
-def concat_data_array(param_name: str, sdate: str, edate: str):
-    """Concatenate a parameter from multiple JSON files into a single NumPy array with NaN for missing values."""
+def concat_data_array(param_name: str, sdate: str, edate: str) -> np.ndarray:
+    """
+    Concatenate a parameter from multiple JSON files into a single NumPy array with NaN for missing values.
+
+    Parameters
+    ----------
+    param_name : str
+        Name of the parameter/column to extract from each JSON file.
+    sdate : str
+        Start date in 'YYYY-MM-DD' format.
+    edate : str
+        End date in 'YYYY-MM-DD' format.
+
+    Returns
+    -------
+    np.ndarray
+        Concatenated array of the parameter values, with missing values as np.nan.
+    """
     from datetime import datetime
 
     data_list = []
@@ -31,18 +65,27 @@ def concat_data_array(param_name: str, sdate: str, edate: str):
 
     if data_list:
         return np.concatenate(data_list)
-    else:
-        return np.array([])
+    return np.array([])
 
 
-def datetime_to_julian(dt_array):
-    """Convert numpy array of datetime64 or pandas Timestamps to Julian date (float)."""
-    dt_index = pd.to_datetime(dt_array, errors="coerce")
-    return dt_index.to_julian_date().values
+def build_dataframe(sdate: str, edate: str) -> pd.DataFrame:
+    """
+    Build the main DataFrame from all arrays, apply standard depth matching and 3-sigma QC.
 
+    Parameters
+    ----------
+    sdate : str
+        Start date in 'YYYY-MM-DD' format.
+    edate : str
+        End date in 'YYYY-MM-DD' format.
 
-def build_dataframe(sdate, edate):
-    """Build the main DataFrame from all arrays."""
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with columns: datetime, longitude, latitude, depth, std_depth,
+        temperature, salinity, dissolved_oxygen. Salinity and dissolved oxygen are
+        quality controlled (3-sigma).
+    """
     temperature = concat_data_array("wtr_tmp", sdate, edate)
     depth = concat_data_array("wtr_dep", sdate, edate)
     obs_time = concat_data_array("obs_dtm", sdate, edate)
@@ -51,7 +94,6 @@ def build_dataframe(sdate, edate):
     salinity = concat_data_array("sal", sdate, edate)
     dissolved_oxygen = concat_data_array("dox", sdate, edate)
 
-    # Use obs_time (datetime string) directly, not julian_time
     df = pd.DataFrame(
         {
             "datetime": obs_time,
@@ -63,29 +105,71 @@ def build_dataframe(sdate, edate):
             "dissolved_oxygen": dissolved_oxygen,
         }
     )
+
+    # --- Standard Depth Matching ---
+    # Only keep rows with valid depth
+    df = df[~np.isnan(df["depth"])]
+    # Find closest standard depth for each row
+    df["std_depth"] = STANDARD_DEPTHS[
+        np.abs(df["depth"].values[:, None] - STANDARD_DEPTHS).argmin(axis=1)
+    ]
+
+    # --- 3-sigma Quality Control for salinity and dissolved oxygen ---
+    for var in ["salinity", "dissolved_oxygen"]:
+        vals = df[var]
+        mean = np.nanmean(vals)
+        std = np.nanstd(vals)
+        mask = (vals >= mean - 3 * std) & (vals <= mean + 3 * std)
+        df.loc[~mask, var] = np.nan
+
     return df
 
 
-def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.nc"):
+def save_sparse_to_netcdf_spatiotemporal(
+    df: pd.DataFrame, filename: str = "sooList1968010120241231.nc"
+) -> None:
     """
     Save original (non-aggregated) data as sparse arrays to NetCDF4 file.
     All variables are saved as a single-precision (float32) array for memory efficiency.
-    Dimensions: spatiotemporal (t, z, y, x) with coordinates.
-    Variables: wtr_tmp (temperature), sal (salinity), dox (dissolved oxygen).
+
+    Dimensions
+    ----------
+    t : time (datetime as string)
+    z : standard depth (float)
+    y : latitude (float)
+    x : longitude (float)
+    n_obs : number of valid observations
+
+    Variables
+    ---------
+    wtr_tmp : float32
+        Water temperature (sparse, indexed by n_obs).
+    sal : float32
+        Salinity (sparse, indexed by n_obs).
+    dox : float32
+        Dissolved oxygen (sparse, indexed by n_obs).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with columns: datetime, longitude, latitude, std_depth, temperature, salinity, dissolved_oxygen.
+    filename : str, optional
+        Output NetCDF4 file name.
+
+    Returns
+    -------
+    None
     """
-    # Get unique sorted values for each dimension
     t_vals = np.sort(pd.to_datetime(df["datetime"].unique()))
     x_vals = np.sort(df["longitude"].unique())
     y_vals = np.sort(df["latitude"].unique())
-    z_vals = np.sort(df["depth"].unique())
+    z_vals = np.sort(df["std_depth"].unique())
 
-    # Create indexers for fast lookup
     t_index = {v: i for i, v in enumerate(t_vals)}
     x_index = {v: i for i, v in enumerate(x_vals)}
     y_index = {v: i for i, v in enumerate(y_vals)}
     z_index = {v: i for i, v in enumerate(z_vals)}
 
-    # Prepare lists for sparse representation
     t_idx, x_idx, y_idx, z_idx = [], [], [], []
     wtr_tmp_data, sal_data, dox_data = [], [], []
 
@@ -95,7 +179,7 @@ def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.n
             pd.isna(row["datetime"])
             or np.isnan(row["longitude"])
             or np.isnan(row["latitude"])
-            or np.isnan(row["depth"])
+            or np.isnan(row["std_depth"])
         ):
             continue
         # Only store rows where at least one variable is not NaN
@@ -107,7 +191,7 @@ def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.n
             t_idx.append(t_index[pd.to_datetime(row["datetime"])])
             x_idx.append(x_index[row["longitude"]])
             y_idx.append(y_index[row["latitude"]])
-            z_idx.append(z_index[row["depth"]])
+            z_idx.append(z_index[row["std_depth"]])
             wtr_tmp_data.append(np.float32(row["temperature"]))
             sal_data.append(np.float32(row["salinity"]))
             dox_data.append(np.float32(row["dissolved_oxygen"]))
@@ -135,17 +219,24 @@ def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.n
         ds.createVariable("z_idx", "i4", ("n_obs",))[:] = np.array(z_idx, dtype=np.int32)
 
         # Sparse data variables as float32
-        ds.createVariable("wtr_tmp", "f4", ("n_obs",), fill_value=np.nan)[:] = np.array(wtr_tmp_data, dtype=np.float32)
-        ds.createVariable("sal", "f4", ("n_obs",), fill_value=np.nan)[:] = np.array(sal_data, dtype=np.float32)
-        ds.createVariable("dox", "f4", ("n_obs",), fill_value=np.nan)[:] = np.array(dox_data, dtype=np.float32)
+        ds.createVariable("wtr_tmp", "f4", ("n_obs",), fill_value=np.nan)[:] = np.array(
+            wtr_tmp_data, dtype=np.float32
+        )
+        ds.createVariable("sal", "f4", ("n_obs",), fill_value=np.nan)[:] = np.array(
+            sal_data, dtype=np.float32
+        )
+        ds.createVariable("dox", "f4", ("n_obs",), fill_value=np.nan)[:] = np.array(
+            dox_data, dtype=np.float32
+        )
 
         ds.title = "Sparse Spatiotemporal Ocean Data"
         ds.history = "Created by script (sparse spatiotemporal representation)"
 
 
-# Example usage:
 if __name__ == "__main__":
     sdate = "1968-01-01"
     edate = "2025-12-31"
     df = build_dataframe(sdate, edate)
-    save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.nc")
+    save_sparse_to_netcdf_spatiotemporal(
+        df, filename="sooList1968010120241231.nc"
+    )
