@@ -87,7 +87,7 @@ def save_sparse_to_netcdf_spatiotemporal(
             pd.isna(row["datetime"])
             or np.isnan(row["longitude"])
             or np.isnan(row["latitude"])
-            or np.isnan(row["std_depth"])
+            or np.isnan(row["depth"])
         ):
             continue
         if not (
