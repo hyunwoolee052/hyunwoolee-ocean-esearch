@@ -21,7 +21,7 @@ def get_service_key():
     None
         Exits the program if the service key is expired.
     """
-    service_key_file = Path.cwd() / "servicekey"
+    service_key_file = Path.cwd() / "servicekey.txt"
     with open(service_key_file, "r", encoding="utf-8") as f:
         expiration_date = f.readline().strip()
         service_key = f.readline().strip()
