@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import netCDF4 as nc
+import time
+import tracemalloc
 
 DATA_DIR = Path.cwd() / "data/"
 
@@ -46,13 +48,13 @@ sdate = "1968-01-01"
 edate = "2025-12-31"
 temperature = concat_data_array("wtr_tmp", sdate, edate)
 depth = concat_data_array("wtr_dep", sdate, edate)
-time = concat_data_array("obs_dtm", sdate, edate)
+obs_time = concat_data_array("obs_dtm", sdate, edate)
 longitude = concat_data_array("lon", sdate, edate)
 latitude = concat_data_array("lat", sdate, edate)
 salinity = concat_data_array("sal", sdate, edate)
 dissolved_oxygen = concat_data_array("dox", sdate, edate)
 
-julian_time = datetime_to_julian(time)
+julian_time = datetime_to_julian(obs_time)
 
 # Combine all arrays into a DataFrame for easy grouping
 df = pd.DataFrame(
@@ -149,5 +151,14 @@ def save_grouped_to_netcdf(grouped_df, filename="grouped_ocean_data.nc"):
         ds.history = "Created by script"
 
 
+# Start memory and time tracking
+start_time = time.time()
+tracemalloc.start()
+
 # Call the function to save as NetCDF
 save_grouped_to_netcdf(grouped)
+
+# Print memory usage and elapsed time
+current, peak = tracemalloc.get_traced_memory()
+print(f"Current memory usage: {current / 1024**2:.2f} MB; Peak: {peak / 1024**2:.2f} MB")
+print(f"Elapsed time: {time.time() - start_time:.2f} seconds")
