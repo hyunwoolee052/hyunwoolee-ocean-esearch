@@ -50,11 +50,11 @@ def build_dataframe(sdate, edate):
     latitude = concat_data_array("lat", sdate, edate)
     salinity = concat_data_array("sal", sdate, edate)
     dissolved_oxygen = concat_data_array("dox", sdate, edate)
-    julian_time = datetime_to_julian(obs_time)
 
+    # Use obs_time (datetime string) directly, not julian_time
     df = pd.DataFrame(
         {
-            "julian_time": julian_time,
+            "datetime": obs_time,
             "longitude": longitude,
             "latitude": latitude,
             "depth": depth,
@@ -74,7 +74,7 @@ def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.n
     Variables: wtr_tmp (temperature), sal (salinity), dox (dissolved oxygen).
     """
     # Get unique sorted values for each dimension
-    t_vals = np.sort(df["julian_time"].unique())
+    t_vals = np.sort(pd.to_datetime(df["datetime"].unique()))
     x_vals = np.sort(df["longitude"].unique())
     y_vals = np.sort(df["latitude"].unique())
     z_vals = np.sort(df["depth"].unique())
@@ -90,17 +90,24 @@ def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.n
     wtr_tmp_data, sal_data, dox_data = [], [], []
 
     for _, row in df.iterrows():
+        # Skip rows where any index dimension is NaN
+        if (
+            pd.isna(row["datetime"])
+            or np.isnan(row["longitude"])
+            or np.isnan(row["latitude"])
+            or np.isnan(row["depth"])
+        ):
+            continue
         # Only store rows where at least one variable is not NaN
         if not (
             np.isnan(row["temperature"])
             and np.isnan(row["salinity"])
             and np.isnan(row["dissolved_oxygen"])
         ):
-            t_idx.append(t_index[row["julian_time"]])
+            t_idx.append(t_index[pd.to_datetime(row["datetime"])])
             x_idx.append(x_index[row["longitude"]])
             y_idx.append(y_index[row["latitude"]])
             z_idx.append(z_index[row["depth"]])
-            # Save as float32 for memory efficiency
             wtr_tmp_data.append(np.float32(row["temperature"]))
             sal_data.append(np.float32(row["salinity"]))
             dox_data.append(np.float32(row["dissolved_oxygen"]))
@@ -115,7 +122,8 @@ def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.n
         ds.createDimension("z", len(z_vals))
 
         # Coordinate variables
-        ds.createVariable("t", "f8", ("t",))[:] = t_vals
+        time_var = ds.createVariable("t", "str", ("t",))
+        time_var[:] = np.array([str(dt) for dt in t_vals])
         ds.createVariable("x", "f4", ("x",))[:] = x_vals
         ds.createVariable("y", "f4", ("y",))[:] = y_vals
         ds.createVariable("z", "f4", ("z",))[:] = z_vals
