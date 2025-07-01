@@ -69,6 +69,7 @@ def build_dataframe(sdate, edate):
 def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.nc"):
     """
     Save original (non-aggregated) data as sparse arrays to NetCDF4 file.
+    All variables are saved as a single-precision (float32) array for memory efficiency.
     Dimensions: spatiotemporal (t, z, y, x) with coordinates.
     Variables: wtr_tmp (temperature), sal (salinity), dox (dissolved oxygen).
     """
@@ -99,9 +100,10 @@ def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.n
             x_idx.append(x_index[row["longitude"]])
             y_idx.append(y_index[row["latitude"]])
             z_idx.append(z_index[row["depth"]])
-            wtr_tmp_data.append(row["temperature"])
-            sal_data.append(row["salinity"])
-            dox_data.append(row["dissolved_oxygen"])
+            # Save as float32 for memory efficiency
+            wtr_tmp_data.append(np.float32(row["temperature"]))
+            sal_data.append(np.float32(row["salinity"]))
+            dox_data.append(np.float32(row["dissolved_oxygen"]))
 
     n_obs = len(t_idx)
 
@@ -119,15 +121,15 @@ def save_sparse_to_netcdf_spatiotemporal(df, filename="sooList1968010120241231.n
         ds.createVariable("z", "f4", ("z",))[:] = z_vals
 
         # Index variables
-        ds.createVariable("t_idx", "i4", ("n_obs",))[:] = t_idx
-        ds.createVariable("x_idx", "i4", ("n_obs",))[:] = x_idx
-        ds.createVariable("y_idx", "i4", ("n_obs",))[:] = y_idx
-        ds.createVariable("z_idx", "i4", ("n_obs",))[:] = z_idx
+        ds.createVariable("t_idx", "i4", ("n_obs",))[:] = np.array(t_idx, dtype=np.int32)
+        ds.createVariable("x_idx", "i4", ("n_obs",))[:] = np.array(x_idx, dtype=np.int32)
+        ds.createVariable("y_idx", "i4", ("n_obs",))[:] = np.array(y_idx, dtype=np.int32)
+        ds.createVariable("z_idx", "i4", ("n_obs",))[:] = np.array(z_idx, dtype=np.int32)
 
-        # Sparse data variables
-        ds.createVariable("wtr_tmp", "f4", ("n_obs",), fill_value=np.nan)[:] = wtr_tmp_data
-        ds.createVariable("sal", "f4", ("n_obs",), fill_value=np.nan)[:] = sal_data
-        ds.createVariable("dox", "f4", ("n_obs",), fill_value=np.nan)[:] = dox_data
+        # Sparse data variables as float32
+        ds.createVariable("wtr_tmp", "f4", ("n_obs",), fill_value=np.nan)[:] = np.array(wtr_tmp_data, dtype=np.float32)
+        ds.createVariable("sal", "f4", ("n_obs",), fill_value=np.nan)[:] = np.array(sal_data, dtype=np.float32)
+        ds.createVariable("dox", "f4", ("n_obs",), fill_value=np.nan)[:] = np.array(dox_data, dtype=np.float32)
 
         ds.title = "Sparse Spatiotemporal Ocean Data"
         ds.history = "Created by script (sparse spatiotemporal representation)"
