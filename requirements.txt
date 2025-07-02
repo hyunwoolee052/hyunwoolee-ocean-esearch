@@ -1,0 +1,16 @@
+numpy
+scipy
+matplotlib
+pandas
+seaborn
+statsmodels
+xarray
+dask
+bottleneck
+netCDF4
+iris
+cftime
+jupyter
+gsw
+ruff
+pre-commit
