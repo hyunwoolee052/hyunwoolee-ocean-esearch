@@ -1,0 +1,10 @@
+data/
+.venv/
+__pycache__/
+*.code-workspace
+*.pyc
+servicekey.txt
+.ipynb_checkpoints
+*.nc
+.ruff_cache/
+docs/build/
