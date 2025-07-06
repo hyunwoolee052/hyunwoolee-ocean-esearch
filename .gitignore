@@ -8,3 +8,4 @@ servicekey.txt
 *.nc
 .ruff_cache/
 docs/build/
+.vscode/
